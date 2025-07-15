@@ -1,0 +1,34 @@
+---
+import ChatBot from '../components/chatbot.jsx';
+import Header from '../components/Header.jsx';
+import Footer from '../components/Footer.jsx';
+---
+
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chatbot de Calificaciones</title>
+
+    <!-- ✅ Bootstrap Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+    />
+
+    <!-- ✅ Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+
+  <body class="min-h-screen flex flex-col bg-gradient-to-br from-indigo-50 via-white to-indigo-100 text-gray-800">
+    <Header client:load />
+
+    <main class="flex-grow p-4">
+      <ChatBot client:load />
+    </main>
+
+    <Footer client:load />
+  </body>
+</html>
+
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
