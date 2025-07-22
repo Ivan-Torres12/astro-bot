@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
-const API_SUGERENCIAS = "http://localhost:5000/sugerencias";
-const API_CHAT = "http://localhost:5000/chat";
+const API_SUGERENCIAS = "https://api-node-oyng.onrender.com//sugerencias";
+const API_CHAT = "https://api-node-oyng.onrender.com//chat";
 
 export default function Chatbot() {
   const [pregunta, setPregunta] = useState("");
