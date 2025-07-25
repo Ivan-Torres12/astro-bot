@@ -46,7 +46,7 @@ export default function Chatbot({ onOpenModal }) {
 
   const filtrarSugerencias = useCallback(() => {
     const t = pregunta.trim();
-    if (!t) return []; // Si no hay texto, no hay sugerencias directas (aunque el placeholder puede guiar)
+    if (!t) return [];
     const words = t.split(/\s+/);
     const last = words[words.length - 1].toLowerCase();
     const before = words.length > 1 ? words[words.length - 2].toLowerCase() : "";
@@ -89,17 +89,26 @@ export default function Chatbot({ onOpenModal }) {
     setHighlightedIndex(-1);
   }, [filtrarSugerencias]);
 
-  // Function to check if the input already contains a name or subject
+  // Updated Function to accurately count unique names or subjects
   const countEntities = (text, entities) => {
     const normText = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     let count = 0;
-    for (const entity of entities) {
-        const normEntity = entity.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        // Use regex for whole word matching to avoid partial matches
-        const regex = new RegExp(`\\b${normEntity}\\b`, 'g');
-        if (normText.match(regex)) {
-            count++;
-        }
+    // Sort entities by length in descending order to prioritize longer matches
+    // This is crucial for multi-word entities (e.g., "Física Cuántica" before "Física")
+    const sortedEntities = [...entities].sort((a, b) => b.length - a.length);
+
+    let tempText = normText; // Use a temporary variable to modify the text
+
+    for (const entity of sortedEntities) {
+      const normEntity = entity.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      // Check if the normalized entity string is present in the current text
+      if (tempText.includes(normEntity)) {
+        count++;
+        // Replace the found entity with spaces in the tempText
+        // This prevents re-counting the same entity or parts of it
+        // The regex escape is important if entity names contain special characters
+        tempText = tempText.replace(new RegExp(normEntity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), ' ');
+      }
     }
     return count;
   };
