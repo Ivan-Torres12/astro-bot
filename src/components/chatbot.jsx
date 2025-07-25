@@ -1,9 +1,18 @@
+// src/components/chatbot.jsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 const API_SUGERENCIAS = "https://api-node-oyng.onrender.com/sugerencias";
 const API_CHAT = "https://api-node-oyng.onrender.com/chat";
 
-export default function Chatbot() {
+// Define las URLs que quieres que se abran en una modal desde el chatbot
+const MODAL_URLS = {
+  "inicio upgop": "https://upgop.edu.mx/",
+  "nosotros upgop": "https://upgop.edu.mx/ingenieria-en-tecnologias-de-la-informacion/",
+  "contacto upgop": "https://upgop.edu.mx/bolsa-de-trabajo/",
+};
+
+// Recibe la prop onOpenModal
+export default function Chatbot({ onOpenModal }) {
   const [pregunta, setPregunta] = useState("");
   const [respuesta, setRespuesta] = useState("");
   const [loading, setLoading] = useState(false);
@@ -12,8 +21,9 @@ export default function Chatbot() {
   const [materias, setMaterias] = useState([]);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [inputFocus, setInputFocus] = useState(false);
+  const [validationMessage, setValidationMessage] = useState("");
 
-  const inputRef = useRef(null);
+  const textareaRef = useRef(null);
   const ignoreBlur = useRef(false);
 
   useEffect(() => {
@@ -26,9 +36,17 @@ export default function Chatbot() {
       .catch(() => console.warn("Error cargando sugerencias"));
   }, []);
 
+  // Effect for auto-resizing textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
+    }
+  }, [pregunta]);
+
   const filtrarSugerencias = useCallback(() => {
     const t = pregunta.trim();
-    if (!t) return [];
+    if (!t) return []; // Si no hay texto, no hay sugerencias directas (aunque el placeholder puede guiar)
     const words = t.split(/\s+/);
     const last = words[words.length - 1].toLowerCase();
     const before = words.length > 1 ? words[words.length - 2].toLowerCase() : "";
@@ -36,9 +54,12 @@ export default function Chatbot() {
     const norm = (s) =>
       s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+    let filtered = [];
+
+    // Lógica para sugerir nombres completos (dos palabras)
     if (words.length >= 2) {
       const combo = words.slice(-2).join(" ").toLowerCase();
-      const comp = nombres.filter((n) => {
+      const compNombres = nombres.filter((n) => {
         const nn = norm(n);
         if (nn.startsWith(norm(combo))) return true;
         const parts = nn.split(" ");
@@ -48,44 +69,128 @@ export default function Chatbot() {
           parts[1].startsWith(norm(last))
         );
       });
-      if (comp.length) return comp.slice(0, 6);
+      if (compNombres.length) filtered = [...filtered, ...compNombres];
     }
 
+    // Sugerencias basadas en la última palabra
     const matchN = nombres.filter((n) => norm(n).includes(norm(last)));
     const matchM = materias.filter((m) => norm(m).includes(norm(last)));
-    return [...matchN, ...matchM].slice(0, 6);
+
+    // Combinar y eliminar duplicados, priorizando nombres/materias exactos o que empiezan con el texto
+    const combined = [...filtered, ...matchN, ...matchM];
+    const uniqueSuggestions = Array.from(new Set(combined));
+
+    return uniqueSuggestions.slice(0, 6);
   }, [pregunta, nombres, materias]);
+
 
   useEffect(() => {
     setSugerencias(filtrarSugerencias());
     setHighlightedIndex(-1);
   }, [filtrarSugerencias]);
 
-  const autocompletar = (value) => {
-    const inputWords = pregunta.trim().split(/\s+/);
-    const sugerenciaWords = value.trim().split(/\s+/);
-
+  // Function to check if the input already contains a name or subject
+  const countEntities = (text, entities) => {
+    const normText = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     let count = 0;
-    for (let i = 0; i < inputWords.length; i++) {
-      const iw = inputWords[inputWords.length - 1 - i]?.toLowerCase();
-      const sw = sugerenciaWords[i]?.toLowerCase();
-      if (sw?.startsWith(iw)) count++;
-      else break;
+    for (const entity of entities) {
+        const normEntity = entity.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        // Use regex for whole word matching to avoid partial matches
+        const regex = new RegExp(`\\b${normEntity}\\b`, 'g');
+        if (normText.match(regex)) {
+            count++;
+        }
+    }
+    return count;
+  };
+
+  const autocompletar = (value) => {
+    const currentInput = pregunta.trim();
+    const words = currentInput.split(/\s+/);
+
+    // Validate before autocompleting
+    const isName = nombres.includes(value);
+    const isSubject = materias.includes(value);
+
+    let canAutocomplete = true;
+    let message = "";
+
+    // Count existing names/subjects in the current input before adding the new one
+    const currentNamesCount = countEntities(currentInput, nombres);
+    const currentMateriasCount = countEntities(currentInput, materias);
+
+    if (isName && currentNamesCount >= 1) { // If already one name and trying to add another
+        canAutocomplete = false;
+        message = "Solo puedes introducir un nombre de alumno.";
+    } else if (isSubject && currentMateriasCount >= 1) { // If already one subject and trying to add another
+        canAutocomplete = false;
+        message = "Solo puedes introducir una materia.";
     }
 
-    const nuevaPregunta =
-      [...inputWords.slice(0, inputWords.length - count), value].join(" ") + " ";
-    setPregunta(nuevaPregunta);
+    if (!canAutocomplete) {
+        setValidationMessage(message);
+        return;
+    } else {
+        setValidationMessage(""); // Clear message if valid
+    }
+
+    let nuevaPregunta = currentInput;
+    // Replace the last word(s) if they match a suggestion
+    const lastWord = words.length > 0 ? words[words.length - 1] : "";
+    const twoWords = words.length >= 2 ? `${words[words.length - 2]} ${lastWord}` : "";
+
+    const normValue = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const normLastWord = lastWord.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const normTwoWords = twoWords.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+    // Check if the suggestion matches the last one or two words for replacement
+    if (words.length >= 2 && normValue.startsWith(normTwoWords)) {
+        nuevaPregunta = words.slice(0, words.length - 2).join(" ") + (words.length > 2 ? " " : "") + value;
+    } else if (words.length >= 1 && normValue.startsWith(normLastWord)) {
+        nuevaPregunta = words.slice(0, words.length - 1).join(" ") + (words.length > 1 ? " " : "") + value;
+    } else {
+        // If no replacement, just append
+        nuevaPregunta = currentInput + (currentInput ? " " : "") + value;
+    }
+    
+    // Ensure there's a space after the autocompleted word
+    if (!nuevaPregunta.endsWith(" ")) {
+        nuevaPregunta += " ";
+    }
+
+    setPregunta(nuevaPregunta.replace(/\s+/g, " ").trimStart());
     setSugerencias([]);
     setHighlightedIndex(-1);
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
   };
 
   const enviar = async () => {
     if (!pregunta.trim()) {
       setRespuesta("Escribe una pregunta primero");
+      setValidationMessage("");
       return;
     }
+
+    // Final validation before sending
+    const currentInput = pregunta.trim();
+    const nameCount = countEntities(currentInput, nombres);
+    const materiaCount = countEntities(currentInput, materias);
+
+    let message = "";
+    if (nameCount > 1) {
+        message = "Por favor, introduce solo un nombre de alumno.";
+    }
+    if (materiaCount > 1) {
+        message = (message ? message + " y " : "") + "Por favor, introduce solo una materia.";
+    }
+
+    if (message) {
+        setValidationMessage(message);
+        return;
+    }
+
+    setValidationMessage("");
+
     setLoading(true);
     setRespuesta("");
     setSugerencias([]);
@@ -106,7 +211,6 @@ export default function Chatbot() {
   };
 
   const onKeyDown = (e) => {
-    if (!sugerencias.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setHighlightedIndex((i) => (i < sugerencias.length - 1 ? i + 1 : 0));
@@ -114,14 +218,64 @@ export default function Chatbot() {
       e.preventDefault();
       setHighlightedIndex((i) => (i > 0 ? i - 1 : sugerencias.length - 1));
     } else if (e.key === "Enter") {
-      if (highlightedIndex >= 0) {
+      if (highlightedIndex >= 0 && sugerencias.length > 0) { // Only autocomplete if there are suggestions and one is highlighted
         e.preventDefault();
         autocompletar(sugerencias[highlightedIndex]);
-      } else enviar();
+      } else {
+        e.preventDefault();
+        enviar();
+      }
     } else if (e.key === "Escape") {
       setSugerencias([]);
       setHighlightedIndex(-1);
     }
+  };
+
+  // Función para renderizar la respuesta con enlaces para la modal
+  const renderRespuestaConEnlaces = (textoRespuesta) => {
+    if (!textoRespuesta) return null;
+
+    const partes = [];
+    let ultimoIndice = 0;
+
+    for (const [clave, url] of Object.entries(MODAL_URLS)) {
+      const lowerTextoRespuesta = textoRespuesta.toLowerCase();
+      const lowerClave = clave.toLowerCase();
+      let index = lowerTextoRespuesta.indexOf(lowerClave, ultimoIndice);
+
+      while (index !== -1) {
+        if (index > ultimoIndice) {
+          partes.push(textoRespuesta.substring(ultimoIndice, index));
+        }
+
+        partes.push(
+          <a
+            key={index}
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenModal(url); // Llama a la función onOpenModal que viene de AppLayout
+            }}
+            className="text-[#1c3e7c] hover:underline font-semibold"
+          >
+            {textoRespuesta.substring(index, index + clave.length)}
+          </a>
+        );
+
+        ultimoIndice = index + clave.length;
+        index = lowerTextoRespuesta.indexOf(lowerClave, ultimoIndice);
+      }
+    }
+
+    if (ultimoIndice < textoRespuesta.length) {
+      partes.push(textoRespuesta.substring(ultimoIndice));
+    }
+
+    if (partes.length === 0) {
+      return textoRespuesta;
+    }
+
+    return partes;
   };
 
   return (
@@ -132,24 +286,30 @@ export default function Chatbot() {
       </h1>
 
       <div className="relative">
-        <input
-          ref={inputRef}
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={pregunta}
-          onChange={(e) => setPregunta(e.target.value)}
+          onChange={(e) => {
+            setPregunta(e.target.value);
+            setValidationMessage("");
+          }}
           onKeyDown={onKeyDown}
           onFocus={() => setInputFocus(true)}
           onBlur={() => !ignoreBlur.current && setInputFocus(false)}
-          placeholder="Ej: ¿Qué sacó Ana P en Álgebra?"
-          className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1c3e7c]"
+          placeholder="Ej: ¿Qué sacó Ana P en Álgebra? (Solo un alumno y una materia)"
+          className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1c3e7c] resize-none overflow-hidden min-h-[48px]"
+          rows="1"
           autoComplete="off"
         />
 
         {pregunta.length > 0 && (
           <button
             type="button"
-            onClick={() => setPregunta("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-red-500"
+            onClick={() => {
+              setPregunta("");
+              setValidationMessage("");
+            }}
+            className="absolute right-3 top-3 text-gray-500 hover:text-red-500"
           >
             <i className="bi bi-x-circle-fill text-lg"></i>
           </button>
@@ -162,7 +322,7 @@ export default function Chatbot() {
             onMouseUp={() =>
               setTimeout(() => {
                 ignoreBlur.current = false;
-                inputRef.current?.focus();
+                textareaRef.current?.focus();
               }, 0)
             }
           >
@@ -190,6 +350,11 @@ export default function Chatbot() {
           </ul>
         )}
       </div>
+
+      {/* Validation Message Display */}
+      {validationMessage && (
+        <p className="text-red-600 text-sm mt-2">{validationMessage}</p>
+      )}
 
       <button
         onClick={enviar}
@@ -220,7 +385,7 @@ export default function Chatbot() {
             : "bg-gray-100 text-gray-800 border border-gray-300"
         } transition-colors duration-300`}
       >
-        {respuesta}
+        {renderRespuestaConEnlaces(respuesta)}
       </div>
     </div>
   );
